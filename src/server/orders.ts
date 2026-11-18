@@ -1,11 +1,22 @@
+import { PublicError } from '@/lib/errors';
 import { Prisma } from '@prisma/client';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { db } from '@/lib/db';
 import { type CheckoutInput } from '@/lib/validation';
 import { priceCart } from './pricing';
 export async function createOrder(input: CheckoutInput, userId?: string) {
   if (input.payment !== 'cash')
-    throw new Error('Онлайн-оплата пока не подключена. Выберите оплату при получении.');
+    throw new PublicError('Онлайн-оплата пока не подключена. Выберите оплату при получении.');
+  const requestHash = createHash('sha256')
+    .update(
+      JSON.stringify({
+        ...input,
+        idempotencyKey: undefined,
+        items: [...input.items].sort((a, b) => a.variantId.localeCompare(b.variantId)),
+        userId: userId || null,
+      }),
+    )
+    .digest('hex');
   // Serializability and conditional decrements prevent overselling and duplicate submissions.
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
@@ -16,7 +27,12 @@ export async function createOrder(input: CheckoutInput, userId?: string) {
           });
           if (existing) {
             if (existing.userId && existing.userId !== userId)
-              throw new Error('Недопустимый ключ заказа');
+              throw new PublicError('Недопустимый ключ заказа');
+            if (existing.requestHash !== requestHash)
+              throw new PublicError(
+                'Состав заказа изменился. Проверьте сумму и повторите оформление.',
+                409,
+              );
             return { id: existing.id, accessToken: existing.accessToken, number: existing.number };
           }
           const { quantities, variants, coupon, totals } = await priceCart(
@@ -24,17 +40,24 @@ export async function createOrder(input: CheckoutInput, userId?: string) {
             input.coupon,
             tx,
           );
+          if (input.expectedTotal !== totals.total)
+            throw new PublicError(
+              'Цена заказа изменилась. Проверьте обновлённую сумму и подтвердите ещё раз.',
+              409,
+            );
           for (const v of variants) {
             const result = await tx.inventory.updateMany({
               where: { variantId: v.id, quantity: { gte: quantities.get(v.id)! } },
               data: { quantity: { decrement: quantities.get(v.id)! } },
             });
-            if (result.count !== 1) throw new Error('Остатки изменились. Обновите корзину.');
+            if (result.count !== 1) throw new PublicError('Остатки изменились. Обновите корзину.');
           }
           const order = await tx.order.create({
             data: {
               number: 'KX-' + randomBytes(5).toString('hex').toUpperCase(),
               idempotencyKey: input.idempotencyKey,
+              requestHash,
+              demo: process.env.APP_MODE !== 'live' || variants.some((v) => v.product.demo),
               accessToken: randomBytes(32).toString('hex'),
               userId,
               firstName: input.firstName,
@@ -77,5 +100,5 @@ export async function createOrder(input: CheckoutInput, userId?: string) {
       throw e;
     }
   }
-  throw new Error('Повторите оформление');
+  throw new PublicError('Повторите оформление');
 }

@@ -5,7 +5,7 @@ PostgreSQL, Prisma, Auth.js / NextAuth, Tailwind CSS 4, shadcn-style Radix Butto
 Motion, React Hook Form, Zod, TanStack Query, Sonner.
 
 Это рабочий **демонстрационный магазин**, а не открытый для реальных продаж сервис.
-Каталог и заказы сохраняются в PostgreSQL. Seed содержит 24 демо-товара и 192
+Каталог и заказы сохраняются в PostgreSQL. Seed содержит 24 демо-товара и 207
 варианта. Фотографии иллюстративные: они не показывают точные модели из карточек.
 Реальные заказы не отправляются курьеру; отзывы покупателей не выдумываются.
 
@@ -15,7 +15,7 @@ Motion, React Hook Form, Zod, TanStack Query, Sonner.
 
 ```bash
 npm ci
-cp .env.example .env
+cp -n .env.example .env
 # Укажите NEXTAUTH_SECRET (openssl rand -base64 32), пароль администратора,
 # строку DATABASE_URL и адрес магазина.
 docker compose up -d db
@@ -132,29 +132,36 @@ SMS, уведомления менеджеру и подключение кур�
 Supabase Auth и Storage не требуются для текущего подключения базы. Не помещайте
 connection string или пароль в переменные `NEXT_PUBLIC_*`.
 
-## Проверки
+## Production и проверки
+
+Подробный runbook: [docs/PRODUCTION.md](docs/PRODUCTION.md).
+Контракты HTTP API: [docs/API.md](docs/API.md).
+Итоговые результаты проверки: [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
 ```bash
-npm run typecheck
+cp .env.test.example .env.test.local
+# Укажите отдельную локальную TEST_DATABASE_URL с именем *_test.
+docker compose -f docker-compose.test.yml up -d
+npm run test:db:migrate
+npm run test:db:seed
 npm run lint
+npm run typecheck
 npm run test
-npx playwright install chromium
-npm run test:e2e
 npm run build
+npm run test:e2e
 npm run start -- --port 3001
 ```
 
-Unit/integration-тесты требуют **отдельную тестовую БД** с миграциями и seed.
-Они проверяют расчёт денег/скидок, валидацию, идемпотентность, конкурентную продажу
-последней пары, rollback, отмену и наличную оплату. Fixtures очищаются после тестов.
-E2E проверяют поиск/URL, размер, сохранение корзины, заказ/остатки/приватность,
-админку, регистрацию/профиль/адрес, мобильную ширину и языки.
+Тесты отказываются использовать рабочую Supabase и запускают production standalone
+на отдельном порту 3100. `.next/standalone` включает статические assets, проходит
+очистку от `.env` и сканирование на секреты. Для изначально установленного браузера
+можно указать `CHROMIUM_EXECUTABLE_PATH` в `.env.test.local`.
 
-В этой среде браузер запускался через установленный Chromium:
+Production-шаблон настроек — `.env.production.example`; Docker runtime —
+`Dockerfile` и `docker-compose.production.yml`; CI — `.github/workflows/verify.yml`.
+`npm run release:check` проверяет настоящий HTTPS-домен и приватные настройки.
+`npm run release:check:local` проверяет текущую локальную конфигурацию.
 
-```bash
-CHROMIUM_EXECUTABLE_PATH=/path/to/chrome npm run test:e2e
-```
 
 ## Архитектура
 
@@ -171,6 +178,8 @@ prisma/              нормализованная схема, миграции
 tests/               unit/integration и Playwright E2E
 ```
 
+Заказы связаны с подтверждённой суммой `expectedTotal` и хешем запроса для защиты
+идемпотентности. Демо-заказы помечаются `demo=true`; их выручка не учитывается.
 Деньги — целые UZS без float. `Order` хранит currency для будущего расширения;
 пересчёт курсов и отображение других валют ещё не включены. `OrderItem` сохраняет
 снимки имени, SKU, цены, изображения, цвета и размера. PostgreSQL дополнительно

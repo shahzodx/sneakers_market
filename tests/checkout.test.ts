@@ -28,6 +28,7 @@ describe('checkout validation', () => {
     address: 'Test street 1',
     payment: 'cash',
     idempotencyKey: crypto.randomUUID(),
+    expectedTotal: 1890000,
     items: [{ variantId: 'v1', quantity: 1 }],
   };
   it('accepts guest checkout', () => expect(checkoutSchema.safeParse(input).success).toBe(true));
@@ -37,5 +38,24 @@ describe('checkout validation', () => {
     expect(
       checkoutSchema.safeParse({ ...input, items: [{ variantId: 'v1', quantity: -1 }] }).success,
     ).toBe(false);
+  });
+});
+
+describe('password length and JSON-LD', () => {
+  it('rejects passwords beyond bcrypt 72-byte boundary', async () => {
+    const { loginSchema } = await import('../src/lib/validation');
+    expect(
+      loginSchema.safeParse({ email: 'a@example.test', password: 'я'.repeat(40) }).success,
+    ).toBe(false);
+    expect(
+      loginSchema.safeParse({ email: 'a@example.test', password: 'StrongPassword123!' }).success,
+    ).toBe(true);
+  });
+  it('escapes script terminators without corrupting JSON-LD', async () => {
+    const { serializeJsonLd } = await import('../src/lib/utils');
+    const value = { name: '</script><script>alert(1)</script>' };
+    const json = serializeJsonLd(value);
+    expect(json).not.toContain('<');
+    expect(JSON.parse(json)).toEqual(value);
   });
 });

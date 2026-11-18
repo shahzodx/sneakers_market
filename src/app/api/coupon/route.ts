@@ -1,3 +1,5 @@
+import { readJson } from '@/server/request';
+import { PublicError } from '@/lib/errors';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db } from '@/lib/db';
@@ -15,7 +17,7 @@ export async function POST(request: Request) {
           .min(1)
           .max(50),
       })
-      .parse(await request.json());
+      .parse(await readJson(request));
     const variants = await db.productVariant.findMany({
       where: { id: { in: items.map((i) => i.variantId) } },
       include: { product: true },
@@ -26,7 +28,7 @@ export async function POST(request: Request) {
     );
     const c = await db.coupon.findUnique({ where: { code: code.toUpperCase() } });
     if (!c || !c.active || (c.expiresAt && c.expiresAt < new Date()) || subtotal < c.minSubtotal)
-      throw new Error('Промокод недействителен или сумма заказа слишком мала');
+      throw new PublicError('Промокод недействителен или сумма заказа слишком мала');
     return NextResponse.json({ percent: c.percent });
   } catch (e) {
     return failure(e);

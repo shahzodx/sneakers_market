@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { storeMode } from '@/lib/store-mode';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import {
@@ -33,7 +34,8 @@ export function Header() {
       <div className="announcement">
         <span>{tx('СВОЙ СТИЛЬ. СВОЙ KIXO.')}</span>
         <span>
-          {t.delivery} <ArrowUpRight size={12} />
+          {storeMode === 'demo' ? tx('Демонстрационный магазин — тестовые заказы') : t.delivery}{' '}
+          <ArrowUpRight size={12} />
         </span>
         <span>{tx('Бесплатно от 1 500 000 UZS')}</span>
       </div>

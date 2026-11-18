@@ -140,6 +140,8 @@ model Order {
  id String @id @default(cuid())
  number String @unique
  idempotencyKey String @unique
+ requestHash String?
+ demo Boolean @default(false)
  accessToken String @unique
  userId String?
  user User? @relation(fields:[userId],references:[id])

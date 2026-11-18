@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { storeMode } from '@/lib/store-mode';
 import { ArrowUpRight } from 'lucide-react';
 import { useStore } from './providers';
 export function Footer() {
@@ -49,10 +50,8 @@ export function Footer() {
             © {new Date().getFullYear()}
             {tx('KIXO. Двигайся по-своему.')}
           </span>
-          <span>{t.demo}</span>
-          <span className="payment-marks">
-            CASH <span>click</span> payme
-          </span>
+          {storeMode === 'demo' && <span>{t.demo}</span>}
+          <span className="payment-marks">CASH</span>
         </div>
         <div className="footer-wordmark" aria-hidden="true">
           ALWAYS IN MOTION.

@@ -1,3 +1,4 @@
+import { readJson } from '@/server/request';
 import { NextResponse } from 'next/server';
 import { checkoutSchema } from '@/lib/validation';
 import { currentUser } from '@/lib/auth';
@@ -8,7 +9,7 @@ export async function POST(request: Request) {
   try {
     await assertOrigin(request);
     await rateLimit('checkout', 15);
-    const input = checkoutSchema.parse(await request.json());
+    const input = checkoutSchema.parse(await readJson(request));
     const user = await currentUser();
     const order = await createOrder(input, user?.id);
     const response = NextResponse.json({ id: order.id, number: order.number });

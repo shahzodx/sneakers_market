@@ -1,0 +1,15 @@
+services:
+  db-test:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: kixo_test
+      POSTGRES_USER: kixo
+      POSTGRES_PASSWORD: kixo_test_password
+    ports:
+      - "127.0.0.1:5434:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kixo -d kixo_test"]
+      interval: 2s
+      retries: 15

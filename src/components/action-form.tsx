@@ -1,13 +1,14 @@
 'use client';
 import { useState, type ReactNode } from 'react';
 import { useStore } from './providers';
+import type { ActionResult } from '@/server/action-result';
 import { toast } from 'sonner';
 export function ActionForm({
   action,
   children,
   className,
 }: {
-  action: (data: FormData) => Promise<void>;
+  action: (data: FormData) => Promise<void | ActionResult>;
   children: ReactNode;
   className?: string;
 }) {
@@ -19,7 +20,11 @@ export function ActionForm({
       action={async (data) => {
         setBusy(true);
         try {
-          await action(data);
+          const result = await action(data);
+          if (result && !result.ok) {
+            toast.error(tx(result.error));
+            return;
+          }
           toast.success(tx('Изменения сохранены'));
         } catch (e) {
           toast.error(tx(e instanceof Error ? e.message : 'Не удалось сохранить'));

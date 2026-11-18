@@ -56,6 +56,9 @@ export function Checkout({
     setValue('idempotencyKey', key);
     setValue('coupon', sessionStorage.getItem('kixo.coupon') || '');
   }, [cart, setValue]);
+  useEffect(() => {
+    if (quote.data) setValue('expectedTotal', quote.data.totals.total);
+  }, [quote.data, setValue]);
   async function submit(data: CheckoutInput) {
     setError('');
     try {
@@ -65,7 +68,15 @@ export function Checkout({
         body: JSON.stringify(data),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error);
+      if (!r.ok) {
+        if (r.status === 409) {
+          const key = crypto.randomUUID();
+          sessionStorage.setItem('kixo.checkout-key', key);
+          setValue('idempotencyKey', key);
+          await quote.refetch();
+        }
+        throw new Error(d.error);
+      }
       clear();
       sessionStorage.removeItem('kixo.checkout-key');
       sessionStorage.removeItem('kixo.coupon');
@@ -239,7 +250,9 @@ export function Checkout({
           )}
           <Button
             variant="accent"
-            disabled={isSubmitting || !cart.length || quote.isPending || !!quote.error}
+            disabled={
+              isSubmitting || !cart.length || quote.isPending || quote.isFetching || !!quote.error
+            }
           >
             {isSubmitting ? tx('Создаём заказ…') : tx('Подтвердить заказ')}
             <ArrowUpRight size={18} />

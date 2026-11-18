@@ -1,3 +1,6 @@
+import { serializeJsonLd } from '@/lib/utils';
+import { localizeProduct } from '@/i18n/product';
+import { getLocale } from '@/i18n/server';
 import { notFound } from 'next/navigation';
 import { db } from '@/lib/db';
 import { productInclude } from '@/types/product';
@@ -7,11 +10,13 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const p = await db.product.findUnique({
     where: { slug },
-    include: { brand: true, images: true },
+    include: { brand: true, images: true, translations: true },
   });
+  const locale = await getLocale();
+  const translation = p?.translations.find((t) => t.locale === locale);
   return {
-    title: p ? `${p.brand.name} ${p.name}` : 'Товар не найден',
-    description: p?.description,
+    title: p ? `${p.brand.name} ${translation?.name || p.name}` : 'Товар не найден',
+    description: translation?.description || p?.description,
     openGraph: { images: p?.images.map((x) => x.url) },
   };
 }
@@ -25,11 +30,12 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
     take: 4,
     orderBy: { popularity: 'desc' },
   });
+  const localized = localizeProduct(p, await getLocale());
   const json = {
     '@context': 'https://schema.org',
     '@type': 'Product',
-    name: p.brand.name + ' ' + p.name,
-    description: p.description,
+    name: p.brand.name + ' ' + localized.name,
+    description: localized.description,
     image: p.images.map(
       (i) => new URL(i.url, process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000').href,
     ),
@@ -47,7 +53,7 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(json).replace(/</g, '\\u003c') }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(json) }}
       />
       <ProductDetail product={p} related={related} />
     </>

@@ -1,7 +1,8 @@
 import 'dotenv/config';
+import { enrichDemo } from './enrich-demo';
 import { PrismaClient } from '@prisma/client';
 import { hash } from 'bcryptjs';
-const db = new PrismaClient();
+const db = new PrismaClient({ transactionOptions: { maxWait: 30000, timeout: 60000 } });
 const images = [
   '/images/sneaker-white.jpg',
   '/images/sneaker-red.jpg',
@@ -36,23 +37,37 @@ const rows: [string, string, number, string, string][] = [
   ['Puma', 'Speedcat OG', 1590000, 'red', 'unisex'],
 ];
 async function main() {
+  if (process.env.APP_MODE === 'live')
+    throw new Error('Demo seeding is disabled in live mode. Import the real catalog instead.');
+  if (
+    process.env.SEED_ADMIN_PASSWORD &&
+    (process.env.SEED_ADMIN_PASSWORD.startsWith('replace-') ||
+      process.env.SEED_ADMIN_PASSWORD.length < 12 ||
+      Buffer.byteLength(process.env.SEED_ADMIN_PASSWORD, 'utf8') > 72)
+  )
+    throw new Error('Set a strong SEED_ADMIN_PASSWORD of 12–72 bytes.');
   const category = await db.category.upsert({
     where: { slug: 'lifestyle' },
     update: {},
     create: { slug: 'lifestyle', name: 'Lifestyle' },
   });
+  const brandCache = new Map((await db.brand.findMany()).map((b) => [b.name, b]));
+  const existingSlugs = new Set(
+    (await db.product.findMany({ select: { slug: true } })).map((p) => p.slug),
+  );
   for (const [index, [brandName, name, price, color, gender]] of rows.entries()) {
-    const brand = await db.brand.upsert({
-      where: { name: brandName },
-      update: {},
-      create: { name: brandName, slug: brandName.toLowerCase().replaceAll(' ', '-') },
-    });
+    const brand =
+      brandCache.get(brandName) ||
+      (await db.brand.upsert({
+        where: { name: brandName },
+        update: {},
+        create: { name: brandName, slug: brandName.toLowerCase().replaceAll(' ', '-') },
+      }));
     const slug = (brandName + '-' + name)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/-$/, '');
-    const exists = await db.product.findUnique({ where: { slug } });
-    if (exists) continue;
+    if (existingSlugs.has(slug)) continue;
     const image = images[index % 5];
     await db.product.create({
       data: {
@@ -115,8 +130,14 @@ async function main() {
     update: {},
     create: { key: 'heroTitle', value: 'ТВОЙ РИТМ.\nТВОИ ПРАВИЛА.' },
   });
+  const translationKeys = new Set(
+    (await db.productTranslation.findMany({ select: { productId: true, locale: true } })).map(
+      (t) => t.productId + ':' + t.locale,
+    ),
+  );
   for (const product of await db.product.findMany({ where: { demo: true } })) {
-    for (const locale of ['en', 'uz'])
+    for (const locale of ['en', 'uz']) {
+      if (translationKeys.has(product.id + ':' + locale)) continue;
       await db.productTranslation.upsert({
         where: { productId_locale: { productId: product.id, locale } },
         update: {},
@@ -134,7 +155,14 @@ async function main() {
               : 'Charm, to‘qimachilik, rezina taglik',
         },
       });
+    }
   }
+  await enrichDemo(db);
   console.log('Seed complete: 24 DEMO products, FIRST10 coupon, configured admin.');
 }
-main().finally(() => db.$disconnect());
+main()
+  .catch((error) => {
+    console.error('Seed failed:', error instanceof Error ? error.name : 'UnknownError');
+    process.exitCode = 1;
+  })
+  .finally(() => db.$disconnect());

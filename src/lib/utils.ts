@@ -13,3 +13,7 @@ export const statuses: Record<string, string> = {
   DELIVERED: 'Доставлен',
   CANCELLED: 'Отменён',
 };
+
+export function serializeJsonLd(value: unknown) {
+  return JSON.stringify(value).replace(/</g, '\\u003c');
+}

@@ -1,3 +1,4 @@
+import { readJson } from '@/server/request';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { priceCart } from '@/server/pricing';
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
           .max(50),
         coupon: z.string().max(40).optional(),
       })
-      .parse(await request.json());
+      .parse(await readJson(request));
     const quote = await priceCart(data.items, data.coupon);
     return NextResponse.json({
       totals: quote.totals,

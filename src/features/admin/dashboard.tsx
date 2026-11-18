@@ -8,7 +8,7 @@ export function AdminDashboard({ data }: { data: AdminData }) {
     <>
       <div className="stats-grid">
         {[
-          [ShoppingBag, 'Заказы', orders.length],
+          [ShoppingBag, 'Заказы без демо', orders.filter((o) => !o.demo).length],
           [BarChart3, 'Оплаченная выручка', money(paid._sum.amount || 0)],
           [Users, 'Клиенты', customers],
           [Package, 'Активные товары', products.filter((p) => !p.archived).length],
@@ -34,7 +34,11 @@ export function AdminDashboard({ data }: { data: AdminData }) {
             end.setDate(end.getDate() + 1);
             const total = orders
               .filter(
-                (o) => o.payment?.status === 'PAID' && o.createdAt >= start && o.createdAt < end,
+                (o) =>
+                  !o.demo &&
+                  o.payment?.status === 'PAID' &&
+                  o.createdAt >= start &&
+                  o.createdAt < end,
               )
               .reduce((a, o) => a + o.total, 0);
             const max = Math.max(...orders.map((o) => o.total), 1);
@@ -68,7 +72,7 @@ export function AdminDashboard({ data }: { data: AdminData }) {
           .map((p) => ({
             p,
             count: orders
-              .filter((o) => o.status !== 'CANCELLED')
+              .filter((o) => !o.demo && o.status !== 'CANCELLED')
               .flatMap((o) => o.items)
               .filter((i) => p.variants.some((v) => v.id === i.variantId))
               .reduce((a, i) => a + i.quantity, 0),

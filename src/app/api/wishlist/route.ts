@@ -1,3 +1,4 @@
+import { readJson } from '@/server/request';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db } from '@/lib/db';
@@ -9,11 +10,13 @@ export async function POST(request: Request) {
     await assertOrigin(request);
     const user = await currentUser();
     if (!user) return NextResponse.json({ local: true });
-    const { productId } = z.object({ productId: z.string().min(1) }).parse(await request.json());
+    const { productId, saved } = z
+      .object({ productId: z.string().min(1), saved: z.boolean() })
+      .parse(await readJson(request));
     const key = { userId: user.id, productId };
-    const old = await db.wishlist.findUnique({ where: { userId_productId: key } });
-    if (old) await db.wishlist.delete({ where: { userId_productId: key } });
-    else await db.wishlist.create({ data: key });
+    if (saved)
+      await db.wishlist.upsert({ where: { userId_productId: key }, update: {}, create: key });
+    else await db.wishlist.deleteMany({ where: key });
     return NextResponse.json({ ok: true });
   } catch (e) {
     return failure(e);

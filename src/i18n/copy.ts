@@ -1,6 +1,10 @@
 import type { Locale } from './dictionaries';
 // Russian keys keep editorial copy readable in components. Values: Uzbek, English.
 const copy: Record<string, readonly [string, string]> = {
+  'Демонстрационный магазин — тестовые заказы': [
+    'Demo do‘kon — sinov buyurtmalari',
+    'Demo store — test orders only',
+  ],
   'В фокусе': ['Diqqat markazida', 'In the spotlight'],
   'Силуэты, которые задают настроение прямо сейчас.': [
     'Hozirgi kayfiyatni belgilovchi uslublar.',

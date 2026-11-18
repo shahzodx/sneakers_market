@@ -42,7 +42,10 @@ export default async function Page({
       db.coupon.findMany(),
       db.setting.findMany(),
       db.user.count({ where: { role: 'CUSTOMER' } }),
-      db.payment.aggregate({ where: { status: 'PAID' }, _sum: { amount: true } }),
+      db.payment.aggregate({
+        where: { status: 'PAID', order: { demo: false } },
+        _sum: { amount: true },
+      }),
     ]);
   const data = { products, orders, brands, categories, coupons, settings, customers, paid };
   const tabs = [

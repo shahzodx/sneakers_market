@@ -43,6 +43,7 @@ export function ProductCard({
           </span>
         </Link>
         <div className="badges">
+          {p.demo && <span className="badge">DEMO</span>}
           {p.isNew && <span className="badge lime">NEW DROP</span>}
           {p.oldPrice && (
             <span className="badge">−{Math.round((1 - p.price / p.oldPrice) * 100)}%</span>

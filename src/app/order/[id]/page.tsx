@@ -111,7 +111,11 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
           <ArrowUpRight size={17} />
         </Link>
       </Button>
-      <p className="demo-note">{tx('Демонстрационный заказ. Реальная доставка не выполняется.')}</p>
+      {o.demo && (
+        <p className="demo-note">
+          {tx('Демонстрационный заказ. Реальная доставка не выполняется.')}
+        </p>
+      )}
     </div>
   );
 }

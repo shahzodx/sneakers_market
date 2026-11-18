@@ -51,7 +51,7 @@ export function Providers({
       if (existing)
         return old.map((x) =>
           x.variantId === item.variantId
-            ? { ...x, quantity: Math.min(x.quantity + item.quantity, item.stock, 10) }
+            ? { ...item, quantity: Math.min(x.quantity + item.quantity, item.stock, 10) }
             : x,
         );
       return [...old, item];
@@ -65,12 +65,17 @@ export function Providers({
     );
   };
   const toggleWish = (id: string) => {
-    setWishlist((old) => (old.includes(id) ? old.filter((x) => x !== id) : [...old, id]));
+    const saved = !getSnapshot().wishlist.includes(id);
+    setWishlist((old) => (saved ? [...new Set([...old, id])] : old.filter((x) => x !== id)));
     fetch('/api/wishlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ productId: id }),
-    }).catch(() => {});
+      body: JSON.stringify({ productId: id, saved }),
+    })
+      .then((r) => {
+        if (!r.ok) toast.error(translate(locale, 'Не удалось сохранить'));
+      })
+      .catch(() => toast.error(translate(locale, 'Ошибка сети')));
   };
   return (
     <SessionProvider>

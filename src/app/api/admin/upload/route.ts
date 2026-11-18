@@ -1,3 +1,5 @@
+import { readJson } from '@/server/request';
+import { PublicError } from '@/lib/errors';
 import { NextResponse } from 'next/server';
 import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -16,7 +18,7 @@ function storage() {
     S3_PUBLIC_URL: publicUrl,
   } = process.env;
   if (!endpoint || !bucket || !accessKeyId || !secretAccessKey || !publicUrl)
-    throw new Error('S3 не настроен. Заполните S3_* в .env.');
+    throw new PublicError('S3 не настроен. Заполните S3_* в .env.');
   return {
     client: new S3Client({
       endpoint,
@@ -44,7 +46,7 @@ export async function POST(request: Request) {
           .min(1)
           .max(5 * 1024 * 1024),
       })
-      .parse(await request.json());
+      .parse(await readJson(request));
     await db.product.findUniqueOrThrow({ where: { id: d.productId } });
     const { client, bucket } = storage();
     const key = `products/${d.productId}/${crypto.randomUUID()}.${d.type.split('/')[1]}`;
@@ -69,9 +71,9 @@ export async function PUT(request: Request) {
     await requireAdmin();
     const d = z
       .object({ productId: z.string().min(1), key: z.string(), alt: z.string().max(200) })
-      .parse(await request.json());
+      .parse(await readJson(request));
     if (!d.key.startsWith(`products/${d.productId}/`) || d.key.includes('..'))
-      throw new Error('Недопустимый ключ');
+      throw new PublicError('Недопустимый ключ');
     const { client, bucket, publicUrl } = storage();
     const obj = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: d.key }));
     if (
@@ -79,7 +81,7 @@ export async function PUT(request: Request) {
       !['image/jpeg', 'image/png', 'image/webp'].includes(obj.ContentType) ||
       (obj.ContentLength || 0) > 5 * 1024 * 1024
     )
-      throw new Error('Недопустимый файл');
+      throw new PublicError('Недопустимый файл');
     await db.productImage.create({
       data: {
         productId: d.productId,

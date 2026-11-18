@@ -4,17 +4,24 @@
   "private": true,
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",
-    "build": "prisma generate && next build",
-    "start": "next start --hostname 0.0.0.0",
+    "build": "prisma generate && next build && node scripts/sanitize-build.mjs && node scripts/check-artifact.mjs",
+    "start": "node scripts/start.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:e2e": "playwright test",
+    "test": "node --import tsx scripts/run-tests.ts unit",
+    "test:e2e": "node --import tsx scripts/run-tests.ts e2e",
     "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate deploy",
-    "db:seed": "tsx prisma/seed.ts",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:seed": "node --import tsx prisma/seed.ts",
     "format": "prettier --write .",
-    "db:check": "tsx scripts/check-database.ts"
+    "db:check": "node --import tsx scripts/check-database.ts",
+    "test:db:migrate": "node --import tsx scripts/run-tests.ts migrate",
+    "test:db:seed": "node --import tsx scripts/run-tests.ts seed",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "release:check": "node --import tsx scripts/release-check.ts",
+    "release:check:local": "node --import tsx scripts/release-check.ts --local",
+    "db:backup": "node --import tsx scripts/backup-database.ts",
+    "db:restore:test": "node --import tsx scripts/restore-test-backup.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.922.0",
@@ -51,6 +58,13 @@
     "tailwindcss": "^4.1.17",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "overrides": {
+    "effect": "^3.20.0",
+    "deepmerge-ts": "^8.0.0"
   }
 }

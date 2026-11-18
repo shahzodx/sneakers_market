@@ -85,6 +85,10 @@ export function AdminProducts({ data, edit }: { data: AdminData; edit?: string }
             </div>
             <div className="inline-checks">
               <label>
+                <input type="checkbox" name="demo" defaultChecked={p?.demo ?? true} />
+                Демонстрационный товар
+              </label>
+              <label>
                 <input type="checkbox" name="featured" defaultChecked={p?.featured} />
                 На главной
               </label>
@@ -133,6 +137,11 @@ export function AdminProducts({ data, edit }: { data: AdminData; edit?: string }
                 {p.variants.map((v) => (
                   <ActionForm key={v.id} action={actions.saveVariant}>
                     <input type="hidden" name="id" value={v.id} />
+                    <input
+                      type="hidden"
+                      name="expectedQuantity"
+                      value={v.inventory?.quantity || 0}
+                    />
                     <input aria-label="SKU" name="sku" defaultValue={v.sku} required />
                     <input
                       aria-label="Размер"

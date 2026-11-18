@@ -1,10 +1,13 @@
-import 'dotenv/config';
+import { loadTestEnvironment } from '../scripts/test-environment';
+loadTestEnvironment();
 import { describe, it, expect, afterAll } from 'vitest';
 import { db } from '../src/lib/db';
 import { changeOrderStatus } from '../src/server/order-status';
 import { createOrder } from '../src/server/orders';
+import { calculateTotals } from '../src/lib/validation';
 import type { CheckoutInput } from '../src/lib/validation';
 const ids: string[] = [];
+const prices = new Map<string, number>();
 async function fixture(quantity = 2) {
   const base = await db.product.findFirstOrThrow();
   const variant = await db.productVariant.create({
@@ -17,6 +20,7 @@ async function fixture(quantity = 2) {
     },
   });
   ids.push(variant.id);
+  prices.set(variant.id, base.price);
   return variant;
 }
 function input(variantId: string): CheckoutInput {
@@ -29,6 +33,7 @@ function input(variantId: string): CheckoutInput {
     address: 'Test address 123',
     payment: 'cash',
     idempotencyKey: crypto.randomUUID(),
+    expectedTotal: calculateTotals(prices.get(variantId)!).total,
     items: [{ variantId, quantity: 1 }],
   };
 }
@@ -52,6 +57,34 @@ describe('PostgreSQL checkout transactions', () => {
     const b = await createOrder(data);
     expect(a.id).toBe(b.id);
     expect((await db.inventory.findUniqueOrThrow({ where: { variantId: v.id } })).quantity).toBe(1);
+  });
+  it('rejects reuse of a key for a different order', async () => {
+    const v = await fixture();
+    const data = input(v.id);
+    await createOrder(data);
+    await expect(createOrder({ ...data, address: 'Different address 10' })).rejects.toMatchObject({
+      status: 409,
+    });
+    expect((await db.inventory.findUniqueOrThrow({ where: { variantId: v.id } })).quantity).toBe(1);
+  });
+  it('rejects an unconfirmed price without decrementing inventory', async () => {
+    const v = await fixture();
+    await expect(createOrder({ ...input(v.id), expectedTotal: 1 })).rejects.toMatchObject({
+      status: 409,
+    });
+    expect((await db.inventory.findUniqueOrThrow({ where: { variantId: v.id } })).quantity).toBe(2);
+  });
+  it('rejects more than ten pairs across duplicate lines', async () => {
+    const v = await fixture(20);
+    const data = input(v.id);
+    data.items = [
+      { variantId: v.id, quantity: 6 },
+      { variantId: v.id, quantity: 5 },
+    ];
+    await expect(createOrder(data)).rejects.toThrow('Не более 10');
+    expect((await db.inventory.findUniqueOrThrow({ where: { variantId: v.id } })).quantity).toBe(
+      20,
+    );
   });
   it('prevents overselling the last pair under concurrency', async () => {
     const v = await fixture(1);
@@ -78,6 +111,19 @@ describe('PostgreSQL checkout transactions', () => {
     );
     await changeOrderStatus(o.id, 'DELIVERED', 'test-admin');
     expect((await db.payment.findUniqueOrThrow({ where: { orderId: o.id } })).status).toBe('PAID');
+  });
+  it('does not sell demo catalog items in live mode', async () => {
+    const v = await fixture();
+    const previous = process.env.APP_MODE;
+    process.env.APP_MODE = 'live';
+    try {
+      await expect(createOrder(input(v.id))).rejects.toThrow('Демонстрационный товар');
+      expect((await db.inventory.findUniqueOrThrow({ where: { variantId: v.id } })).quantity).toBe(
+        2,
+      );
+    } finally {
+      process.env.APP_MODE = previous;
+    }
   });
   it('rejects online payments without credentials and leaves stock intact', async () => {
     const v = await fixture();

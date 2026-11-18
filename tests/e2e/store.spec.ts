@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import { loadTestEnvironment } from '../../scripts/test-environment';
+loadTestEnvironment();
 import { test, expect } from '@playwright/test';
 import { PrismaClient } from '@prisma/client';
 const db = new PrismaClient();
@@ -123,10 +124,14 @@ test('language switching persists and product content is localized', async ({ pa
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await page.goto('/product/nike-air-max-90');
   await expect(page.getByRole('button', { name: 'Add to bag' })).toBeVisible();
-  await expect(page.getByText(/An everyday classic with character/)).toBeVisible();
+  await expect(
+    page.locator('#main .product-purchase').getByText(/An everyday classic with character/),
+  ).toBeVisible();
   await page.getByRole('combobox', { name: 'Language' }).selectOption('uz');
   await expect(page.getByRole('button', { name: 'Savatga qo‘shish' })).toBeVisible();
-  await expect(page.getByText(/Xarakterli kundalik klassika/)).toBeVisible();
+  await expect(
+    page.locator('#main .product-purchase').getByText(/Xarakterli kundalik klassika/),
+  ).toBeVisible();
 });
 
 test('registration, customer access, profile and saved address', async ({ page }) => {
@@ -149,11 +154,242 @@ test('registration, customer access, profile and saved address', async ({ page }
     await page.goto('/admin');
     await expect(page.getByRole('heading', { name: 'Доступ ограничен' })).toBeVisible();
     const r = await page.request.post('/api/admin/upload', {
-      headers: { Origin: 'http://localhost:3001' },
+      headers: { Origin: process.env.TEST_BASE_URL || 'http://localhost:3100' },
       data: {},
     });
     expect(r.ok()).toBe(false);
   } finally {
     await db.user.deleteMany({ where: { email } });
   }
+});
+
+async function loginAdmin(page: import('@playwright/test').Page) {
+  await page.goto('/login');
+  await page.getByLabel('Email', { exact: true }).fill(process.env.SEED_ADMIN_EMAIL!);
+  await page.getByLabel('Пароль', { exact: true }).fill(process.env.SEED_ADMIN_PASSWORD!);
+  await page.getByRole('button', { name: 'Войти', exact: true }).click();
+  await expect(page).toHaveURL(/\/account/);
+}
+
+test('production HTTP boundaries, coupon, idempotency and operator catalog', async ({
+  request,
+}) => {
+  const origin = process.env.TEST_BASE_URL || 'http://localhost:3100';
+  const health = await request.get('/api/health?ready=1');
+  expect(health.status()).toBe(200);
+  expect(health.headers()['x-powered-by']).toBeUndefined();
+  expect(health.headers()['content-security-policy']).toContain("object-src 'none'");
+  const denied = await request.post('/api/orders', { data: {} });
+  expect(denied.status()).toBe(403);
+  const invalid = await request.post('/api/register', {
+    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    data: '{"secret":"not-for-response",oops',
+  });
+  expect(invalid.status()).toBe(400);
+  expect(await invalid.text()).not.toContain('not-for-response');
+  const oversized = await request.post('/api/register', {
+    headers: { Origin: origin },
+    data: { email: 'x'.repeat(40000) },
+  });
+  expect(oversized.status()).toBe(413);
+  const operator = await request.get('/api/operator/catalog?query=KX-1-42');
+  expect(operator.ok()).toBe(true);
+  expect((await operator.json()).products[0].variants[0].sku).toBe('KX-1-42');
+  const v = await db.productVariant.findUniqueOrThrow({
+    where: { sku: 'KX-1-42' },
+    include: { inventory: true },
+  });
+  const items = [{ variantId: v.id, quantity: 1 }];
+  const quote = await request.post('/api/cart/quote', {
+    headers: { Origin: origin },
+    data: { items, coupon: 'FIRST10' },
+  });
+  expect(quote.ok()).toBe(true);
+  const totals = (await quote.json()).totals;
+  expect(totals.discount).toBeGreaterThan(0);
+  const payload = {
+    firstName: 'Test',
+    lastName: 'API',
+    phone: '+998901234567',
+    region: 'Ташкент',
+    city: 'Ташкент',
+    address: 'E2E fixture street, building 10',
+    payment: 'cash',
+    coupon: 'FIRST10',
+    items,
+    idempotencyKey: crypto.randomUUID(),
+    expectedTotal: totals.total,
+  };
+  const stale = await request.post('/api/orders', {
+    headers: { Origin: origin },
+    data: { ...payload, expectedTotal: 1 },
+  });
+  expect(stale.status()).toBe(409);
+  const a = await request.post('/api/orders', { headers: { Origin: origin }, data: payload });
+  expect(a.ok()).toBe(true);
+  const first = await a.json();
+  const b = await request.post('/api/orders', { headers: { Origin: origin }, data: payload });
+  expect((await b.json()).id).toBe(first.id);
+  const changed = await request.post('/api/orders', {
+    headers: { Origin: origin },
+    data: { ...payload, comment: 'changed request' },
+  });
+  expect(changed.status()).toBe(409);
+  expect((await db.inventory.findUniqueOrThrow({ where: { variantId: v.id } })).quantity).toBe(
+    v.inventory!.quantity - 1,
+  );
+  expect((await db.order.findUniqueOrThrow({ where: { id: first.id } })).demo).toBe(true);
+});
+
+test('admin creates product, rejects stale inventory, saves translation and images, archives', async ({
+  page,
+}) => {
+  const slug = 'qa-fixture-' + crypto.randomUUID();
+  try {
+    await loginAdmin(page);
+    await page.goto('/admin?tab=products&edit=new');
+    const create = page
+      .locator('form:visible')
+      .filter({ has: page.locator('input[name=slug]') })
+      .filter({ has: page.locator('textarea[name=description]') });
+    await create.getByLabel('Название', { exact: true }).fill('QA Fixture');
+    await create.getByLabel('Slug', { exact: true }).fill(slug);
+    await create.getByLabel('Цена UZS', { exact: true }).fill('1200000');
+    await create
+      .getByLabel('Описание', { exact: true })
+      .fill('Explicit demo product created only in the isolated test database.');
+    await create.getByRole('button', { name: 'Сохранить товар', exact: true }).click();
+    await expect(page.getByText('Изменения сохранены')).toBeVisible();
+    const product = await db.product.findUniqueOrThrow({
+      where: { slug },
+      include: { variants: true },
+    });
+    expect(product.demo).toBe(true);
+    await page.goto('/admin?tab=products&edit=' + product.id);
+    let stockForm = page.locator('.variants-table form:visible').first();
+    const variant = product.variants[0];
+    // Identify by SKU rather than relying on an unspecified relation order.
+    stockForm = page
+      .locator('.variants-table form:visible')
+      .filter({ has: page.locator('input[name=sku][value="' + variant.sku + '"]') });
+    await db.inventory.update({ where: { variantId: variant.id }, data: { quantity: 2 } });
+    await stockForm.getByLabel('Остаток', { exact: true }).fill('5');
+    await stockForm.getByRole('button', { name: 'Сохранить', exact: true }).click();
+    await expect(
+      page.getByText('Остаток изменился после открытия формы.', { exact: false }),
+    ).toBeVisible();
+    expect(
+      (await db.inventory.findUniqueOrThrow({ where: { variantId: variant.id } })).quantity,
+    ).toBe(2);
+    await page.reload();
+    stockForm = page
+      .locator('.variants-table form:visible')
+      .filter({ has: page.locator('input[name=sku][value="' + variant.sku + '"]') });
+    await stockForm.getByLabel('Остаток', { exact: true }).fill('5');
+    await stockForm.getByRole('button', { name: 'Сохранить', exact: true }).click();
+    await expect
+      .poll(
+        async () =>
+          (await db.inventory.findUniqueOrThrow({ where: { variantId: variant.id } })).quantity,
+      )
+      .toBe(5);
+    const english = page
+      .locator('details:visible')
+      .filter({ has: page.getByText('EN — описание и материалы', { exact: true }) });
+    await english.locator('summary').click();
+    await english.getByLabel('Название', { exact: true }).fill('QA English Fixture');
+    await english
+      .getByLabel('Описание', { exact: true })
+      .fill('English description saved by the protected production server action.');
+    await english.getByLabel('Материалы', { exact: true }).fill('Demo material');
+    await english.getByRole('button', { name: 'Сохранить перевод' }).click();
+    await expect
+      .poll(
+        async () =>
+          await db.productTranslation.count({ where: { productId: product.id, locale: 'en' } }),
+      )
+      .toBe(1);
+    const imageForm = page.locator('form:visible').filter({ has: page.locator('input[name=url]') });
+    await imageForm.getByLabel('URL', { exact: true }).fill('/images/sneaker-red.jpg');
+    await imageForm.getByRole('button', { name: 'Добавить по URL' }).click();
+    await expect
+      .poll(async () => await db.productImage.count({ where: { productId: product.id } }))
+      .toBe(2);
+    const row = page.locator('tbody tr:visible').filter({ hasText: slug });
+    await row.getByRole('button', { name: 'В архив', exact: true }).click();
+    await expect
+      .poll(async () => (await db.product.findUniqueOrThrow({ where: { slug } })).archived)
+      .toBe(true);
+    await page.goto('/product/' + slug);
+    await expect(page.getByRole('heading', { name: 'Эта пара ушла вперёд.' })).toBeVisible();
+  } finally {
+    await db.product.deleteMany({ where: { slug } });
+  }
+});
+
+test('wishlist writes are idempotent and newsletter really persists', async ({ page }) => {
+  const email = 'newsletter-' + crypto.randomUUID() + '@example.test';
+  const origin = process.env.TEST_BASE_URL || 'http://localhost:3100';
+  const product = await db.product.findUniqueOrThrow({ where: { slug: 'adidas-samba-og' } });
+  try {
+    await loginAdmin(page);
+    for (let i = 0; i < 2; i++) {
+      const r = await page.request.post('/api/wishlist', {
+        headers: { Origin: origin },
+        data: { productId: product.id, saved: true },
+      });
+      expect(r.ok()).toBe(true);
+    }
+    const admin = await db.user.findUniqueOrThrow({
+      where: { email: process.env.SEED_ADMIN_EMAIL! },
+    });
+    expect(await db.wishlist.count({ where: { productId: product.id, userId: admin.id } })).toBe(1);
+    await page.request.post('/api/wishlist', {
+      headers: { Origin: origin },
+      data: { productId: product.id, saved: false },
+    });
+    expect(await db.wishlist.count({ where: { productId: product.id, userId: admin.id } })).toBe(0);
+    const response = await page.request.post('/api/newsletter', {
+      headers: { Origin: origin },
+      data: { email },
+    });
+    expect(response.ok()).toBe(true);
+    expect(await db.subscriber.count({ where: { email } })).toBe(1);
+  } finally {
+    await db.subscriber.deleteMany({ where: { email } });
+    const admin = await db.user.findUnique({ where: { email: process.env.SEED_ADMIN_EMAIL! } });
+    if (admin) await db.wishlist.deleteMany({ where: { productId: product.id, userId: admin.id } });
+  }
+});
+
+test('production images, gallery keyboard and responsive layout have no runtime errors', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/');
+  await expect(page.locator('.hero-image img')).toBeVisible();
+  await expect
+    .poll(async () =>
+      page
+        .locator('.hero-image img')
+        .evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0),
+    )
+    .toBe(true);
+  for (const width of [320, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+  }
+  await page.goto('/product/nike-air-max-90');
+  await page.getByRole('button', { name: 'Увеличить изображение' }).click();
+  await expect(page.locator('dialog[open]')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('dialog')).toHaveCount(0);
+  for (const section of ['about', 'delivery', 'returns', 'privacy', 'sizes', 'contact']) {
+    const response = await page.request.get('/info?section=' + section);
+    expect(response.ok()).toBe(true);
+  }
+  expect(errors).toEqual([]);
 });

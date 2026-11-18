@@ -1,3 +1,4 @@
+import { PublicError } from '@/lib/errors';
 import type { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { getServerSession } from 'next-auth';
@@ -45,6 +46,6 @@ export async function currentUser() {
 }
 export async function requireAdmin() {
   const user = await currentUser();
-  if (user?.role !== 'ADMIN') throw new Error('Доступ запрещён');
+  if (user?.role !== 'ADMIN') throw new PublicError('Доступ запрещён', 403);
   return user;
 }

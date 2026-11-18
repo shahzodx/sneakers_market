@@ -1,7 +1,14 @@
 import { z } from 'zod';
 export const loginSchema = z.object({
   email: z.email().toLowerCase(),
-  password: z.string().min(10).max(128),
+  password: z
+    .string()
+    .min(10)
+    .max(72)
+    .refine(
+      (value) => new TextEncoder().encode(value).length <= 72,
+      'Пароль не должен превышать 72 байта',
+    ),
 });
 export const registerSchema = loginSchema.extend({ name: z.string().trim().min(2).max(80) });
 export const checkoutSchema = z.object({
@@ -18,6 +25,7 @@ export const checkoutSchema = z.object({
   payment: z.enum(['cash', 'click', 'payme']),
   coupon: z.string().max(40).optional(),
   idempotencyKey: z.uuid(),
+  expectedTotal: z.number().int().positive().max(2000000000),
   items: z
     .array(z.object({ variantId: z.string().min(1), quantity: z.number().int().min(1).max(10) }))
     .min(1)

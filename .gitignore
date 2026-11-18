@@ -7,3 +7,14 @@ playwright-report/
 test-results/
 *.tsbuildinfo
 supabase.txt
+
+.env.test.local
+.env.production
+.env.production.*
+coverage/
+artifacts/
+!.env.production.example
+
+certs/*.pem
+certs/*.crt
+certs/*.key

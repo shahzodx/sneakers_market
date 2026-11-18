@@ -1,3 +1,4 @@
+import { PublicError } from '@/lib/errors';
 import { Prisma, type OrderStatus } from '@prisma/client';
 import { db } from '@/lib/db';
 export const transitions: Record<OrderStatus, OrderStatus[]> = {
@@ -19,7 +20,7 @@ export async function changeOrderStatus(id: string, status: OrderStatus, actorId
           });
           if (order.status === status) return;
           if (!transitions[order.status].includes(status))
-            throw new Error('Недопустимый переход статуса');
+            throw new PublicError('Недопустимый переход статуса');
           if (status === 'CANCELLED')
             for (const item of order.items)
               await tx.inventory.update({

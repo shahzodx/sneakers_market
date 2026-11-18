@@ -26,7 +26,9 @@ export function AdminOrders({ data, status }: { data: AdminData; status?: string
           <section className="admin-panel" key={o.id} id={o.id}>
             <div className="section-heading">
               <div>
-                <h2>{o.number}</h2>
+                <h2>
+                  {o.number} {o.demo && <span className="status-pill">DEMO</span>}
+                </h2>
                 <small>{o.createdAt.toLocaleString('ru-RU')}</small>
               </div>
               <span className="status-pill">{statuses[o.status]}</span>
